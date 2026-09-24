@@ -1,0 +1,1308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BreakEven: Flat Fee Time Tracker for DaVinci Resolve</title>
+<meta name="description" content="Know the moment a flat fee job stops paying you fairly, live, while you edit in DaVinci Resolve.">
+<link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABPUlEQVR42u3bPQrCQBCG4fSinSB4AwsRrDyAjccwt7Gx9yjewFt4AivBUkGwyMJmd2Z28+O+C18b8z1EYuJsVbFYrWu5mL/HHABKLW6GKBYg1QfOppMk6RyiWIDUhQ/7XWvO92tUcoEAYAWQFtYC5AIBQAugLZwK4Hi7NKKFAEAKoC2uvf35CvsihQAgFsBa3HpbjQWQQgCQGiDXDxb3uAB0BSAt3tVjbQhifaq/CZ0XAP8G8CsOgBVgqMV9EG7xWAgAtAB9F5dCAAAAAAAAAAAAAAAAAAAAAMDjMAD2V2LbzaqRvl6JaYsDAAAAur/GfMVzj7e5x7UWB8AK4J7Q6/loJBVEbGEAcgP4LkW3eAhCmlzFAUg1Jhf6CkgLaNPbnGCxALHj8LkLD25WePQA7BgBgE1TALBxEgBWcesDTL5F+ZCoQDcAAAAASUVORK5CYII=">
+<link rel="preload" href="fonts/bricolage-latin.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+  @font-face{font-family:"Bricolage Grotesque"; font-weight:500 700; font-style:normal; font-display:swap; src:url(fonts/bricolage-latin.woff2) format("woff2")}
+  @font-face{font-family:"Space Mono"; font-weight:400; font-style:normal; font-display:swap; src:url(fonts/spacemono-400.woff2) format("woff2")}
+  @font-face{font-family:"Space Mono"; font-weight:700; font-style:normal; font-display:swap; src:url(fonts/spacemono-700.woff2) format("woff2")}
+  :root {
+    --bg: #141210; --card: #1B1815; --track: #100F0C; --hair: #211E1B; --dimSeg: #2E2A24; --dimSegAmber: #4A3A1D;
+    --text: #F7F4EE; --text2: #DCD6CB; --bodyMuted: #A29C8F; --sectionLabel: #8A7B63;
+    --caption: #6E685D; --outlineLight: #3A352D; --outlineShadow: #221F1B;
+    --green: #62C99A; --greenLight: #8FE0BA; --greenDark: #2E7D5B; --onGreen: #08130D;
+    --amber: #E3A33C; --amberLight: #F0C275; --amberDark: #8A5F17; --onAmber: #1B1206;
+    --red: #E5533D; --redLight: #F08A78; --redDark: #8F2A1B; --onRed: #1B0806;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.65 "Bricolage Grotesque", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    overflow-x: hidden;   /* the 3D-rotated mockup can reach past the viewport edge; never let that scroll sideways */
+  }
+  .mono { font-family: "Space Mono", ui-monospace, Menlo, Consolas, monospace; }
+  .display { font-family: "Bricolage Grotesque", -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 0 24px; }
+  a { color: inherit; }
+
+  /* ---- header: a floating pill nav, hard-edge bordered like the app's own controls ---- */
+  header.top { position: sticky; top: 14px; z-index: 10; padding: 0 16px; margin-bottom: -14px; }
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between; max-width: 820px; margin: 0 auto;
+    background: var(--card); border-radius: 999px; padding: 12px 20px;
+    border-style: solid; border-width: 1px 3px 3px 1px; border-color: #332E27 var(--outlineShadow) var(--outlineShadow) #332E27;
+    box-shadow: 0 14px 30px -14px rgba(0,0,0,0.55);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand img { width: 22px; height: 22px; image-rendering: pixelated; }
+  .brand span { font-family: "Bricolage Grotesque", sans-serif; font-weight: 600; font-size: 14px; letter-spacing: 0.5px; }
+  nav.links { display: flex; gap: 24px; font-size: 13px; color: var(--bodyMuted); }
+  nav.links a { text-decoration: none; }
+  nav.links a:hover { color: var(--text); }
+  @media (max-width: 620px) { nav.links { display: none; } }
+  .nav-cta {
+    font-size: 12.5px; font-weight: 700; padding: 8px 18px; border-radius: 999px; text-decoration: none;
+    background: var(--green); color: var(--onGreen); border-style: solid; border-width: 1px 3px 3px 1px;
+    border-color: var(--greenLight) var(--greenDark) var(--greenDark) var(--greenLight);
+  }
+
+  /* ---- hero ---- */
+  .hero { padding: 92px 0 8px; text-align: center; position: relative; }
+
+  .hero-stage { position: relative; overflow: hidden; }
+
+  /* ---- ambient light: the page has no per-section colour. One fixed light sits behind everything and crossfades
+     between the app's status colours depending on which section is at the middle of the screen, so there are no
+     seams between sections. Atmosphere only - nothing in the foreground is blurred or frosted. ---- */
+  .amb { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+  .amb i { position: absolute; inset: 0; opacity: 0; transition: opacity 1.4s ease; }
+  .amb i.r { background: radial-gradient(ellipse 85% 55% at 50% -8%, rgba(229,83,61,0.30), transparent 72%), radial-gradient(ellipse 55% 45% at 100% 100%, rgba(229,83,61,0.12), transparent 72%); }
+  .amb i.g { background: radial-gradient(ellipse 85% 55% at 50% -8%, rgba(98,201,154,0.30), transparent 72%), radial-gradient(ellipse 55% 45% at 100% 100%, rgba(98,201,154,0.12), transparent 72%); }
+  .amb i.a { background: radial-gradient(ellipse 85% 55% at 50% -8%, rgba(227,163,60,0.30), transparent 72%), radial-gradient(ellipse 55% 45% at 100% 100%, rgba(227,163,60,0.12), transparent 72%); }
+  .amb[data-tone="red"] i.r, .amb[data-tone="green"] i.g, .amb[data-tone="amber"] i.a { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { .amb i { transition: none; } }
+  .hero h1 { font-family: "Bricolage Grotesque", -apple-system, sans-serif; font-size: 38px; line-height: 1.18; margin: 0 0 20px; font-weight: 600; letter-spacing: 0; text-transform: uppercase; }
+  .hero h1 em { color: var(--red); font-style: italic; font-weight: 600; }
+  .hero h1 { text-wrap: balance; }
+  @media (max-width: 520px) { .hero h1 { font-size: 28px; } .hero h1 br { display: none; } }
+  .hero p.sub { color: var(--bodyMuted); font-size: 17px; max-width: 540px; margin: 0 auto 34px; }
+  .cta-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .btn {
+    display: inline-block; padding: 15px 30px; border-radius: 999px; font-weight: 700;
+    font-size: 14px; text-decoration: none; border-style: solid; border-width: 1px 4px 4px 1px;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+  }
+  /* extra offset shadow under the hard-edge border - a flat "3D button" that presses flush on click */
+  .btn.primary { background: var(--green); color: var(--onGreen); border-color: var(--greenLight) var(--greenDark) var(--greenDark) var(--greenLight); box-shadow: 0 5px 0 var(--greenDark); }
+  .btn.quiet { background: var(--card); color: var(--text2); border-color: #332E27 var(--outlineShadow) var(--outlineShadow) #332E27; box-shadow: 0 5px 0 var(--outlineShadow); }
+  .btn:active { transform: translateY(5px); box-shadow: 0 0 0 transparent; }
+  p.microcopy { font-size: 12px; color: var(--caption); margin: 14px 0 0; }
+  p.hero-links { font-size: 12px; margin: 10px 0 0; }
+  p.hero-links a { color: var(--text2); text-decoration: underline; text-underline-offset: 3px; }
+  p.hero-links a:hover { color: var(--text); }
+
+  /* ---- app mockup (hero): real perspective depth, tilted like it's sitting in 3D space, with an
+     interactive tilt-toward-cursor layer added by JS on top of this resting angle ---- */
+  /* two mockups, tilted so they fan slightly toward each other rather than lean the same way */
+  /* sits in the full-width hero (outside the 820px text column) so the two cards fit side by side */
+  .hero-mockups { display: flex; flex-wrap: nowrap; gap: 40px; justify-content: center; align-items: flex-start; margin: 64px auto 0; padding: 0 24px 40px; max-width: 1140px; perspective: 1600px; }
+  .mockup-frame { margin: 0; flex: 1 1 0; min-width: 0; max-width: 520px; text-align: left; }
+  .mockup-chrome {
+    background: var(--card); border-radius: 14px; overflow: hidden;
+    border: 1px solid var(--hair);
+    transform-style: preserve-3d;
+    box-shadow:
+      0 45px 80px -25px rgba(0,0,0,0.7),
+      0 20px 40px -15px rgba(229,83,61,0.18),
+      0 2px 0 rgba(255,255,255,0.04) inset;
+    transition: transform 0.25s ease-out;
+    will-change: transform;
+  }
+  .mockup-chrome.mc-left  { transform: perspective(1600px) rotateX(8deg) rotateY(9deg)  rotateZ(-0.4deg); }
+  .mockup-chrome.mc-right { transform: perspective(1600px) rotateX(8deg) rotateY(-9deg) rotateZ(0.4deg); }
+  /* on narrow screens the sideways rotation would hang off the edge - flatten to a gentle forward tilt and stack */
+  /* only phones stack them - anything tablet-width and up keeps green left, red right */
+  @media (max-width: 820px) {
+    .hero-mockups { flex-direction: column; align-items: center; gap: 44px; }
+    .mockup-frame { flex: none; width: 100%; max-width: 500px; }
+  }
+  @media (max-width: 720px) {
+    /* scale compensates for the perspective widening the near edge past the container */
+    .mockup-chrome, .mockup-chrome.mc-left, .mockup-chrome.mc-right { transform: perspective(1200px) rotateX(5deg) scale(0.96); }
+  }
+  .mockup-titlebar { display: flex; align-items: center; gap: 7px; padding: 12px 16px; background: #18160F13; }
+  .mockup-titlebar .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .mockup-titlebar .dot.r { background: #EC6A5E; } .mockup-titlebar .dot.y { background: #F4BF4F; } .mockup-titlebar .dot.g { background: #61C454; }
+  .mockup-titlebar .name { margin-left: 8px; font-size: 12px; color: var(--caption); font-weight: 600; }
+  /* fixed height + flex column so both cards match exactly even though the red one has an extra banner row -
+     the Stop button pins to the bottom of whichever card has less content above it */
+  .mockup-body { padding: 26px 30px 30px; background: var(--bg); display: flex; flex-direction: column; min-height: 392px; }
+  .mockup-head { display: flex; align-items: center; gap: 9px; margin-bottom: 22px; }
+  .mockup-head .tick { width: 8px; height: 8px; border-radius: 2px; }
+  .mockup-head .proj { font-weight: 700; font-size: 14px; flex: 1; }
+  .mockup-head .status { font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+  .mockup-clock { font-size: 44px; font-weight: 600; margin-bottom: 16px; }
+  .mockup-stats { display: flex; gap: 30px; margin-bottom: 14px; }
+  .mockup-stats .stat .cap { font-size: 9px; font-weight: 700; letter-spacing: 1px; color: var(--caption); margin-bottom: 4px; }
+  .mockup-stats .stat .val { font-size: 19px; font-weight: 600; }
+  .mockup-burnbar { display: flex; gap: 5px; height: 5px; margin-bottom: 20px; }
+  .mockup-burnbar span { flex: 1; border-radius: 2px; background: var(--dimSeg); }
+  .mockup-burnbar span.on { background: var(--red); }
+  .mockup-burnbar span:last-child { flex: 2.6; }
+  .mockup-banner {
+    font-size: 12px; font-weight: 700; letter-spacing: 0.6px; padding: 11px 14px; border-radius: 8px; margin-bottom: 18px;
+    background: var(--red); color: var(--onRed);
+    border-style: solid; border-width: 1px 4px 4px 1px; border-color: var(--redLight) var(--redDark) var(--redDark) var(--redLight);
+  }
+  .mockup-stop {
+    display: inline-block; font-size: 12px; font-weight: 700; padding: 9px 20px; border-radius: 18px;
+    color: var(--text); border: 1px solid var(--outlineLight);
+    align-self: flex-start; margin-top: auto;
+  }
+  .mockup-caption { text-align: center; font-size: 12.5px; color: var(--caption); margin-top: 14px; }
+
+  /* ---- sections ---- */
+  section { padding: 52px 0; position: relative; }
+  .kicker {
+    font-size: 10px; font-weight: 700; letter-spacing: 1.5px; color: var(--sectionLabel);
+    text-transform: uppercase; margin: 0 0 16px; display: flex; align-items: center; gap: 8px;
+  }
+  .kicker::before { content: ""; width: 3px; height: 12px; background: var(--green); border-radius: 1px; }
+  h2.title { font-family: "Bricolage Grotesque", sans-serif; font-size: 24px; margin: 0 0 14px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; }
+  @media (max-width: 520px) { h2.title { font-size: 21px; } }
+  p.body { color: var(--bodyMuted); font-size: 14.5px; max-width: 620px; }
+
+  /* ---- "what it does": one big visual, switched by clicking a feature in the list below it ---- */
+  .fx-stage {
+    display: grid; position: relative; overflow: hidden; margin-bottom: 18px;
+    border: 1px solid var(--hair); border-radius: 16px; padding: 46px 28px 20px;
+    background: linear-gradient(160deg, #211D18 0%, #161411 55%, #100F0C 100%);
+  }
+  /* the stage takes on the app's own status colour for whatever is showing - green when things are healthy,
+     amber for the warning-type features - and crossfades between them on switch */
+  .fx-glow { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.7s ease; }
+  .fx-glow.g {
+    background:
+      radial-gradient(ellipse 65% 70% at 50% -10%, rgba(98,201,154,0.28), transparent 70%),
+      radial-gradient(ellipse 45% 55% at 100% 110%, rgba(98,201,154,0.13), transparent 70%);
+  }
+  .fx-glow.a {
+    background:
+      radial-gradient(ellipse 65% 70% at 50% -10%, rgba(227,163,60,0.28), transparent 70%),
+      radial-gradient(ellipse 45% 55% at 100% 110%, rgba(227,163,60,0.13), transparent 70%);
+  }
+  .fx-stage[data-tone="green"] .fx-glow.g, .fx-stage[data-tone="amber"] .fx-glow.a { opacity: 1; }
+  .fx-panel {
+    grid-area: 1 / 1; display: flex; flex-direction: column; align-items: center; min-width: 0; position: relative; z-index: 1;
+    opacity: 0; visibility: hidden; pointer-events: none;
+    transition: opacity 0.3s ease, transform 0.45s cubic-bezier(.2,.75,.25,1), visibility 0s linear 0.45s;
+  }
+  .fx-panel.is-active {
+    opacity: 1; visibility: visible; pointer-events: auto;
+    transition: opacity 0.35s ease 0.08s, transform 0.5s cubic-bezier(.2,.75,.25,1), visibility 0s;
+  }
+  .fx-show { flex: 1; width: 100%; display: flex; align-items: center; justify-content: center; }
+  .fx-visual { width: 100%; max-width: 540px; position: relative; }
+  .fx-cap { margin: 24px 0 0; font-size: 12.5px; color: var(--caption); text-align: center; max-width: 520px; }
+
+  /* mini app window shared by every visual */
+  .fx-win { background: var(--bg); border: 1px solid var(--hair); border-radius: 12px; overflow: hidden; box-shadow: 0 30px 60px -30px rgba(0,0,0,0.85); text-align: left; }
+  .fx-bar { display: flex; align-items: center; gap: 7px; padding: 10px 14px; background: var(--card); border-bottom: 1px solid var(--hair); }
+  .fx-bar .d { width: 10px; height: 10px; border-radius: 50%; }
+  .fx-bar .d.r { background: #EC6A5E; } .fx-bar .d.y { background: #F4BF4F; } .fx-bar .d.g { background: #61C454; }
+  .fx-bar .nm { margin-left: 6px; font-size: 11.5px; color: var(--caption); font-weight: 600; }
+  .fx-body { padding: 22px 26px 24px; }
+  .fx-head { display: flex; align-items: center; gap: 9px; margin-bottom: 14px; }
+  .fx-head .tick { width: 8px; height: 8px; border-radius: 2px; }
+  .fx-head .proj { font-weight: 700; font-size: 13.5px; flex: 1; }
+  .fx-head .status { font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+  .fx-clock { font-size: 46px; font-weight: 600; line-height: 1.1; margin-bottom: 16px; letter-spacing: -0.5px; }
+  .fx-stats { display: flex; gap: 30px; margin-bottom: 16px; }
+  .fx-stats .cap { font-size: 9px; font-weight: 700; letter-spacing: 1px; color: var(--caption); margin-bottom: 4px; }
+  .fx-stats .val { font-size: 19px; font-weight: 600; }
+  .fx-burn { display: flex; gap: 4px; height: 6px; }
+  .fx-burn span { flex: 1; border-radius: 1px; background: var(--dimSeg); }
+  .fx-burn.g span.on { background: var(--green); }
+  .fx-burn.a span { background: var(--dimSegAmber); }
+  .fx-burn.a span.on { background: var(--amber); }
+  .fx-hint { margin-top: 16px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px; color: var(--amber); }
+  .fx-sec { display: flex; align-items: center; gap: 8px; font-size: 9.5px; font-weight: 700; letter-spacing: 1px; color: var(--sectionLabel); margin-bottom: 12px; }
+  .fx-sec::before { content: ""; width: 3px; height: 10px; background: var(--green); border-radius: 1px; }
+
+  /* notification that drops in on the 80% panel */
+  .fx-toast {
+    position: absolute; top: -30px; right: -20px; width: 262px; z-index: 2;
+    display: flex; gap: 10px; padding: 11px 12px; border-radius: 12px;
+    background: #221F1B; border: 1px solid var(--outlineLight); box-shadow: 0 18px 40px -14px rgba(0,0,0,0.85);
+    font-size: 11.5px; line-height: 1.4;
+    opacity: 0; transform: translateY(-10px); transition: opacity 0.35s ease, transform 0.4s cubic-bezier(.2,.75,.25,1);
+  }
+  .fx-panel.is-active .fx-toast { opacity: 1; transform: none; transition-delay: 0.5s; }
+  .fx-toast .ic {
+    flex: 0 0 auto; width: 28px; height: 28px; border-radius: 7px; background: var(--amber); color: var(--onAmber);
+    display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px;
+  }
+  .fx-toast b { display: block; color: var(--text); font-size: 11.5px; }
+  .fx-toast span { color: var(--bodyMuted); }
+
+  /* session history */
+  .fx-hrow { display: grid; grid-template-columns: 54px 66px 54px 1fr; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--hair); font-size: 11.5px; }
+  .fx-hrow.h { border-top: none; padding-top: 0; font-size: 9px; font-weight: 700; letter-spacing: 1px; color: var(--caption); }
+  .fx-hrow .dt, .fx-hrow .e { color: var(--bodyMuted); }
+  .fx-hrow.h span { color: var(--caption); }
+  .fx-hrow .n { color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fx-hrow .n .muted { color: var(--caption); }
+  .fx-tag { font: 700 8.5px/1 "Space Mono", ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.5px; background: var(--amber); color: var(--onAmber); padding: 3px 5px; border-radius: 3px; margin-right: 6px; vertical-align: 1px; }
+  .fx-revline { margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--hair); font-size: 10px; font-weight: 700; letter-spacing: 1px; color: var(--amber); }
+
+  /* quote helper */
+  .fx-fields { display: flex; gap: 10px; margin-bottom: 18px; }
+  .fx-field { flex: 1; min-width: 0; }
+  .fx-field label { display: block; font-size: 9px; font-weight: 700; letter-spacing: 1px; color: var(--caption); margin-bottom: 5px; }
+  .fx-field input {
+    width: 100%; background: var(--card); border: 1px solid var(--outlineLight); border-radius: 8px; color: var(--text);
+    font: 600 14px "Space Mono", ui-monospace, Menlo, Consolas, monospace; padding: 8px 10px;
+  }
+  .fx-field input:focus { outline: none; border-color: var(--green); }
+  .fx-field input::-webkit-outer-spin-button, .fx-field input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .fx-field input[type=number] { -moz-appearance: textfield; }
+  .fx-feecap { font-size: 9px; font-weight: 700; letter-spacing: 1px; color: var(--caption); }
+  .fx-fee { font-size: 32px; font-weight: 700; color: var(--green); line-height: 1.2; margin: 2px 0 2px; }
+  .fx-feesub { font-size: 11.5px; color: var(--caption); }
+  .fx-quote-foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+  .fx-gbtn {
+    flex: 0 0 auto; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; padding: 8px 14px; border-radius: 8px;
+    background: var(--green); color: var(--onGreen);
+    border-style: solid; border-width: 1px 3px 3px 1px; border-color: var(--greenLight) var(--greenDark) var(--greenDark) var(--greenLight);
+  }
+
+  /* where your time goes */
+  .fx-prow { display: grid; grid-template-columns: 70px 1fr 60px; gap: 12px; align-items: center; padding: 6px 0; font-size: 10.5px; }
+  .fx-prow .l { font-weight: 700; letter-spacing: 0.8px; color: var(--sectionLabel); }
+  .fx-prow .t { text-align: right; color: var(--text2); }
+  .fx-pbar { height: 6px; background: var(--card); border-radius: 1px; overflow: hidden; }
+  .fx-pbar i { display: block; height: 100%; width: 0; background: var(--green); transition: width 0.8s cubic-bezier(.2,.75,.25,1) 0.2s; }
+  .fx-panel.is-active .fx-pbar i { width: var(--w); }
+  .fx-ptotal { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--hair); display: flex; justify-content: space-between; font-size: 10px; font-weight: 700; letter-spacing: 1px; color: var(--caption); }
+  .fx-ptotal b { color: var(--text); font-weight: 700; }
+
+  /* idle auto-stop + compact pill */
+  .fx-stack { display: flex; flex-direction: column; align-items: center; gap: 20px; }
+  .fx-pill {
+    display: inline-flex; align-items: center; gap: 12px; padding: 10px 16px 10px 14px; border-radius: 999px; background: var(--card);
+    border-style: solid; border-width: 1px 3px 3px 1px; border-color: #332E27 var(--outlineShadow) var(--outlineShadow) #332E27;
+    box-shadow: 0 16px 34px -16px rgba(0,0,0,0.85);
+  }
+  .fx-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px rgba(98,201,154,0.15); }
+  .fx-pill .clk { font-size: 16px; font-weight: 600; }
+  .fx-pill .rt { font-size: 13px; font-weight: 700; color: var(--green); }
+  .fx-pill .x { font-size: 9px; font-weight: 700; letter-spacing: 1px; color: var(--caption); border-left: 1px solid var(--hair); padding-left: 12px; }
+  .fx-setting { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; font-size: 9.5px; font-weight: 700; letter-spacing: 1px; color: var(--sectionLabel); }
+  .fx-setting .box { font: 600 12px "Space Mono", ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0; color: var(--text); background: var(--card); border: 1px solid var(--outlineLight); border-radius: 7px; padding: 5px 10px; }
+  .fx-setting .lock { margin-left: auto; color: var(--caption); font-weight: 700; }
+
+  /* project summary (the real one is a light HTML page) */
+  .fx-seg { display: inline-flex; gap: 2px; padding: 3px; margin-bottom: 14px; background: var(--card); border: 1px solid var(--hair); border-radius: 9px; }
+  .fx-seg button { font: inherit; font-size: 10.5px; font-weight: 700; padding: 6px 12px; border-radius: 6px; border: none; background: none; color: var(--caption); cursor: pointer; }
+  .fx-seg button.on { background: var(--green); color: var(--onGreen); }
+  .fx-doc { background: #F4F1EA; color: #141210; border-radius: 10px; padding: 22px 24px 24px; box-shadow: 0 30px 60px -30px rgba(0,0,0,0.85); text-align: left; }
+  .fx-doc .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .fx-doc .k { font: 700 9.5px/1 "Space Mono", ui-monospace, Menlo, Consolas, monospace; letter-spacing: 2px; color: #8A7B63; }
+  .fx-doc .h { font-size: 22px; font-weight: 700; line-height: 1.1; margin: 8px 0 18px; }
+  .fx-doc .date { font: 10.5px "Space Mono", ui-monospace, Menlo, Consolas, monospace; color: #6E685D; white-space: nowrap; }
+  .fx-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .fx-tile { border: 1px solid #DCD6CB; border-radius: 8px; padding: 10px 12px; background: #FBF9F4; min-width: 0; }
+  .fx-tile .l { font: 700 8.5px/1 "Space Mono", ui-monospace, Menlo, Consolas, monospace; letter-spacing: 1px; color: #8A7B63; }
+  .fx-tile .v { font: 700 16px/1.2 "Space Mono", ui-monospace, Menlo, Consolas, monospace; margin-top: 8px; }
+  .fx-tile .s { font-size: 10px; color: #6E685D; margin-top: 3px; line-height: 1.35; }
+  .fx-tile.good .v { color: #2E7D5B; } .fx-tile.warn .v { color: #8A5F17; }
+  .fx-tiles[hidden] { display: none; }
+
+  /* crash recovery dialog */
+  .fx-dialog { max-width: 400px; margin: 0 auto; background: var(--card); border: 1px solid var(--outlineLight); border-radius: 14px; padding: 22px 22px 18px; box-shadow: 0 30px 60px -28px rgba(0,0,0,0.9); text-align: left; }
+  .fx-dialog .badge {
+    width: 30px; height: 30px; border-radius: 8px; background: var(--amber); color: var(--onAmber); margin-bottom: 12px;
+    display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 15px;
+    border-style: solid; border-width: 1px 2px 2px 1px; border-color: var(--amberLight) var(--amberDark) var(--amberDark) var(--amberLight);
+  }
+  .fx-dialog .t { font-weight: 700; font-size: 15px; margin-bottom: 6px; }
+  .fx-dialog .b { font-size: 12.5px; color: var(--bodyMuted); line-height: 1.6; }
+  .fx-dialog .b strong { color: var(--text); }
+  .fx-dialog .btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+  .fx-dbtn { font-size: 11.5px; font-weight: 700; padding: 8px 16px; border-radius: 8px; }
+  .fx-dbtn.danger { color: var(--redLight); border: 1px solid var(--redDark); }
+  .fx-dbtn.go { background: var(--green); color: var(--onGreen); border-style: solid; border-width: 1px 3px 3px 1px; border-color: var(--greenLight) var(--greenDark) var(--greenDark) var(--greenLight); }
+
+  /* the feature list under the stage - click one to switch the visual above */
+  .fx-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 14px; }
+  .fx-tab {
+    display: flex; align-items: center; gap: 14px; width: 100%; padding: 12px 14px; margin: 0;
+    border-radius: 12px; border: 1px solid transparent; background: transparent; color: inherit;
+    font: inherit; text-align: left; cursor: pointer; transition: background 0.2s ease, border-color 0.2s ease;
+  }
+  .fx-tab:hover { background: var(--card); border-color: var(--outlineLight); }
+  .fx-tab.is-active { background: var(--card); border-color: var(--greenDark); }
+  .fx-tab:focus-visible { outline: 2px solid var(--greenDark); outline-offset: 2px; }
+  .fx-icon {
+    flex: 0 0 auto; width: 38px; height: 38px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
+    background: var(--track); color: var(--sectionLabel);
+    border-style: solid; border-width: 1px 2px 2px 1px; border-color: var(--outlineLight) var(--outlineShadow) var(--outlineShadow) var(--outlineLight);
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  }
+  .fx-icon svg { width: 18px; height: 18px; }
+  .fx-tab:hover .fx-icon { color: var(--text2); }
+  .fx-tab.is-active .fx-icon { background: var(--green); color: var(--onGreen); border-color: var(--greenLight) var(--greenDark) var(--greenDark) var(--greenLight); }
+  .fx-title { display: block; font-size: 12.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text2); transition: color 0.2s ease; }
+  .fx-desc { display: block; font-size: 12.5px; color: var(--caption); margin-top: 1px; transition: color 0.2s ease; }
+  .fx-tab:hover .fx-title, .fx-tab.is-active .fx-title { color: var(--text); }
+  .fx-tab:hover .fx-desc, .fx-tab.is-active .fx-desc { color: var(--bodyMuted); }
+
+  @media (max-width: 720px) {
+    .fx-list { grid-template-columns: 1fr; }
+    .fx-stage { padding: 40px 14px 16px; }
+    /* on a phone the notification overlaps the window's corner, like a real one would, instead of taking its own row */
+    .fx-toast { top: -24px; right: -6px; width: 78%; padding: 9px 10px; font-size: 10.5px; }
+    .fx-toast b { font-size: 10.5px; }
+    .fx-toast .ic { width: 24px; height: 24px; font-size: 12px; }
+    .fx-clock { font-size: 36px; }
+    .fx-stats { gap: 22px; }
+    .fx-body { padding: 18px 18px 20px; }
+  }
+  @media (max-width: 520px) {
+    .fx-hrow { grid-template-columns: 46px 60px 1fr; }
+    .fx-hrow .e { display: none; }
+    .fx-hrow .n { white-space: normal; overflow: visible; text-overflow: clip; }
+    /* summary tiles become compact label/value rows rather than three stacked boxes */
+    .fx-tiles { grid-template-columns: 1fr; gap: 6px; }
+    .fx-tile { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 8px 10px; }
+    .fx-tile .v { margin-top: 0; font-size: 14px; }
+    .fx-tile .s { display: none; }
+    .fx-doc { padding: 18px 16px 16px; }
+    .fx-doc .h { font-size: 19px; margin-bottom: 14px; }
+    .fx-fields { gap: 8px; }
+    .fx-field input { padding: 7px 8px; font-size: 13px; }
+    .fx-field label { font-size: 8px; }
+    .fx-quote-foot { flex-direction: column; align-items: flex-start; gap: 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .fx-panel, .fx-panel.is-active, .fx-toast, .fx-pbar i { transition: none; }
+  }
+
+  /* ---- comparison table: feature | without | with ---- */
+  .vs { margin-top: 30px; border: 1px solid var(--hair); border-radius: 12px; overflow: hidden; background: var(--track); }
+  /* row lines run under the feature + "without" cells only, so the green "with" column reads as one unbroken panel */
+  .vs-row { display: grid; grid-template-columns: 1fr 150px 150px; align-items: stretch; }
+  .vs-row > div { padding: 14px 20px; display: flex; flex-direction: column; justify-content: center; }
+  .vs-row:not(:first-child) > div:not(.us) { border-top: 1px solid var(--hair); }
+  .vs-row .feat { font-size: 14px; color: var(--text2); }
+  .vs-row .feat small { display: block; font-size: 12px; color: var(--caption); margin-top: 2px; }
+  .vs-row .cell { text-align: center; align-items: center; }
+  .vs-row .cell.us { background: var(--card); border-left: 1px solid var(--greenDark); border-right: 1px solid var(--greenDark); }
+  .vs-head > div { padding-top: 18px; padding-bottom: 16px; }
+  .vs-head .cell { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--caption); line-height: 1.35; }
+  .vs-head .cell small { display: block; font-size: 10px; font-weight: 400; letter-spacing: 0; text-transform: none; margin-top: 3px; }
+  .vs-head .cell.us { color: var(--green); border-top: 3px solid var(--green); }
+  .vs-row:last-child .cell.us { border-bottom: 1px solid var(--greenDark); }
+  /* the win mark: a small hard-edge green badge, same border technique as the app's own controls */
+  .yes {
+    display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 7px;
+    background: var(--green); border-style: solid; border-width: 1px 2px 2px 1px;
+    border-color: var(--greenLight) var(--greenDark) var(--greenDark) var(--greenLight);
+  }
+  .yes svg { width: 13px; height: 13px; }
+  .no { display: inline-block; width: 12px; height: 2px; border-radius: 1px; background: var(--outlineLight); vertical-align: middle; }
+  @media (max-width: 620px) {
+    .vs-row { grid-template-columns: 1fr 72px 72px; }
+    .vs-row > div { padding: 12px 12px; }
+    .vs-row .feat { font-size: 13px; }
+    .vs-row .feat small { display: none; }
+    .vs-head .cell small { display: none; }
+    .vs-head .cell { font-size: 9px; letter-spacing: 0.3px; padding-left: 4px; padding-right: 4px; }
+  }
+
+  /* ---- pricing ---- */
+  .price-card {
+    max-width: 380px; margin: 24px auto 0; text-align: center; padding: 32px 28px; border-radius: 12px;
+    background: var(--card); border: 1px solid var(--hair);
+  }
+  .price-badge {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: 1.2px;
+    text-transform: uppercase; padding: 7px 14px; border-radius: 999px; margin-bottom: 18px;
+    background: var(--amber); color: var(--onAmber);
+    border-style: solid; border-width: 1px 2px 2px 1px;
+    border-color: var(--amberLight) var(--amberDark) var(--amberDark) var(--amberLight);
+  }
+  .amount-row { display: flex; align-items: baseline; justify-content: center; gap: 10px; margin-bottom: 8px; }
+  .price-card .was { font-size: 19px; font-weight: 700; color: var(--caption); letter-spacing: -0.3px; text-decoration: line-through; text-decoration-color: var(--red); text-decoration-thickness: 2px; }
+  .price-card .amount { font-size: 38px; font-weight: 700; color: var(--green); letter-spacing: -0.5px; }
+  .price-card .note { font-size: 13px; color: var(--bodyMuted); margin-bottom: 22px; }
+  .pricing { text-align: center; }
+
+  /* ---- faq: collapsed by default, click the question to unfold ---- */
+  .faq-item { border-bottom: 1px solid var(--hair); }
+  .faq-item:last-child { border-bottom: none; }
+  .faq-q {
+    width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 20px;
+    background: none; border: none; padding: 18px 2px; margin: 0; cursor: pointer; text-align: left;
+    font: inherit; font-size: 13px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text);
+  }
+  .faq-q:hover { color: var(--green); }
+  .faq-arrow { flex: 0 0 auto; color: var(--sectionLabel); transition: transform 0.25s ease, color 0.25s ease; }
+  .faq-item.open .faq-q { color: var(--green); }
+  .faq-item.open .faq-arrow { transform: rotate(180deg); color: var(--green); }
+  /* grid-rows 0fr->1fr is the trick that animates to an unknown content height */
+  .faq-a { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.3s ease; }
+  .faq-item.open .faq-a { grid-template-rows: 1fr; }
+  .faq-a-inner { overflow: hidden; }
+  .faq-a p { font-size: 13.5px; color: var(--bodyMuted); margin: 0 2px 18px; max-width: 600px; }
+
+  /* ---- "the whole thing": the full app window on a glowing stage; hover or tap a point in the list to spotlight that part ---- */
+  .wn-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 28px; align-items: start; margin: 26px -110px 0; }
+  .wn-stage {
+    position: relative; overflow: hidden; border: 1px solid var(--hair); border-radius: 16px; padding: 34px 30px;
+    background: linear-gradient(160deg, #211D18 0%, #161411 55%, #100F0C 100%);
+  }
+  .wn-stage::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background:
+      radial-gradient(ellipse 65% 70% at 50% -10%, rgba(227,163,60,0.28), transparent 70%),
+      radial-gradient(ellipse 45% 55% at 100% 110%, rgba(227,163,60,0.13), transparent 70%);
+  }
+  .wn { position: relative; max-width: 780px; margin: 0 auto; background: var(--bg); border: 1px solid var(--hair); border-radius: 12px; overflow: hidden; box-shadow: 0 30px 60px -30px rgba(0,0,0,0.85); text-align: left; }
+  .wn-bar { display: flex; align-items: center; gap: 7px; padding: 10px 14px; background: var(--card); border-bottom: 1px solid var(--hair); }
+  .wn-bar .d { width: 10px; height: 10px; border-radius: 50%; }
+  .wn-bar .d.r { background: #EC6A5E; } .wn-bar .d.y { background: #F4BF4F; } .wn-bar .d.g { background: #61C454; }
+  .wn-bar .nm { margin-left: 6px; font-size: 11.5px; color: var(--caption); font-weight: 600; }
+  .wn-grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 0 26px; padding: 22px; }
+  .wn-col { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+  /* a region = one part of the window a list item points at */
+  .wn-r { position: relative; padding: 8px 10px; margin: -8px -10px; border-radius: 9px; transition: opacity 0.3s ease, background 0.3s ease, box-shadow 0.3s ease; }
+  .wn.has-lit .wn-r { opacity: 0.32; }
+  .wn.has-lit .wn-r.is-lit { opacity: 1; background: rgba(98,201,154,0.06); box-shadow: 0 0 0 1px var(--greenDark); }
+  .wn-sec { display: flex; align-items: center; gap: 8px; font-size: 8.5px; font-weight: 700; letter-spacing: 1px; color: var(--caption); margin-bottom: 10px; }
+  .wn-sec::before { content: ""; width: 3px; height: 12px; border-radius: 1px; background: var(--amber); }
+  .wn-sec.g::before { background: var(--green); }
+  .wn-head { display: flex; align-items: center; gap: 8px; }
+  .wn-head .proj { flex: 1; font-weight: 700; font-size: 12.5px; }
+  .wn-head .st { font-size: 8.5px; font-weight: 700; letter-spacing: 1px; color: var(--amber); }
+  .wn-clock { font-size: 40px; font-weight: 600; line-height: 1.15; margin: 6px 0 10px; letter-spacing: -0.5px; }
+  .wn-stats { display: flex; gap: 22px; }
+  .wn-stats .cap { font-size: 8px; font-weight: 700; letter-spacing: 1px; color: var(--caption); margin-bottom: 3px; }
+  .wn-stats .val { font-size: 17px; font-weight: 600; }
+  .wn-stats .amb { color: var(--amber); }
+  .wn-seg { display: flex; gap: 5px; height: 6px; }
+  .wn-seg span { border-radius: 3px; background: var(--amber); flex: 1; }
+  .wn-seg span:nth-child(4) { flex: 3; background: var(--dimSegAmber); }
+  .wn-msg { margin-top: 12px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.6px; color: var(--amber); }
+  .wn-btns { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .wn-stop { font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px; padding: 8px 16px; border-radius: 16px; color: var(--text); border: 1px solid var(--outlineLight); }
+  .wn-util { font-size: 8px; font-weight: 700; letter-spacing: 0.5px; padding: 6px 9px; border-radius: 7px; color: var(--text2); border: 1px solid var(--outlineLight); white-space: nowrap; text-align: center; }
+  .wn-set { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 8.5px; font-weight: 700; letter-spacing: 1px; color: var(--caption); }
+  .wn-set i { flex: 1; border-bottom: 1px dotted var(--outlineLight); transform: translateY(2px); }
+  .wn-set .v { font: 600 10.5px "Space Mono", ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0; color: var(--text); }
+  .wn-chk { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 8px; font-weight: 700; letter-spacing: 0.7px; color: var(--text2); }
+  .wn-chk .bx { flex: 0 0 auto; width: 10px; height: 10px; border-radius: 3px; border: 1px solid var(--outlineLight); }
+  .wn-chk .bx.on { background: var(--green); border-color: var(--greenLight); }
+  .wn-chk .gap { flex: 1; }
+  .wn-note { margin-top: 12px; display: flex; align-items: center; gap: 10px; }
+  .wn-note .in { flex: 1; min-width: 0; font-size: 8.5px; color: var(--caption); background: var(--card); border: 1px solid var(--hair); border-radius: 7px; padding: 7px 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wn-prow { display: grid; grid-template-columns: 56px 1fr 46px; gap: 8px; align-items: center; padding: 4px 0; font-size: 9px; }
+  .wn-prow .l { font-weight: 700; letter-spacing: 0.6px; color: var(--sectionLabel); }
+  .wn-prow .t { text-align: right; color: var(--text2); }
+  .wn-pbar { height: 5px; background: var(--card); border-radius: 2px; overflow: hidden; }
+  .wn-pbar i { display: block; height: 100%; background: var(--green); }
+  .wn-hrow { display: grid; grid-template-columns: 38px 50px 1fr; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--hair); font-size: 9px; }
+  .wn-hrow.h { border-top: none; padding: 0 0 6px; font-size: 8px; font-weight: 700; letter-spacing: 1px; color: var(--caption); }
+  .wn-hrow .dt { color: var(--bodyMuted); }
+  .wn-hrow .n { color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: "Bricolage Grotesque", -apple-system, "Segoe UI", sans-serif; }
+  .wn-tag { font: 700 7.5px/1 "Space Mono", ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.4px; background: var(--amber); color: var(--onAmber); padding: 2px 4px; border-radius: 3px; margin-right: 5px; vertical-align: 1px; }
+  .wn-revline { margin-top: 2px; padding-top: 8px; border-top: 1px solid var(--hair); font-size: 8px; font-weight: 700; letter-spacing: 1px; color: var(--amber); }
+  .wn-ubtns { display: grid; gap: 6px; margin-top: 10px; }
+  .wn-ubtns.two { grid-template-columns: 1fr 1fr; }
+  .wn-ubtns.three { grid-template-columns: 1fr 1fr 1fr; }
+  .wn-ubtns .wn-util { padding: 6px 2px; }
+  .wn-list { display: flex; flex-direction: column; gap: 6px; }
+  .wn-item {
+    display: flex; gap: 14px; align-items: flex-start; width: 100%; padding: 14px; margin: 0; border-radius: 12px;
+    border: 1px solid transparent; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease;
+  }
+  .wn-item:hover { background: var(--card); border-color: var(--outlineLight); }
+  .wn-item.is-active { background: var(--card); border-color: var(--greenDark); }
+  .wn-item:focus-visible { outline: 2px solid var(--greenDark); outline-offset: 2px; }
+  .wn-n {
+    flex: 0 0 auto; width: 26px; height: 26px; border-radius: 7px; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; background: var(--track); color: var(--sectionLabel);
+    border-style: solid; border-width: 1px 2px 2px 1px; border-color: var(--outlineLight) var(--outlineShadow) var(--outlineShadow) var(--outlineLight);
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  }
+  .wn-item.is-active .wn-n { background: var(--green); color: var(--onGreen); border-color: var(--greenLight) var(--greenDark) var(--greenDark) var(--greenLight); }
+  .wn-item b { display: block; font-size: 12.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text2); margin-bottom: 2px; }
+  .wn-item i { display: block; font-style: normal; font-size: 12.5px; color: var(--caption); line-height: 1.5; }
+  .wn-item.is-active b, .wn-item:hover b { color: var(--text); }
+  .wn-item.is-active i, .wn-item:hover i { color: var(--bodyMuted); }
+  @media (max-width: 1100px) { .wn-layout { grid-template-columns: 1fr; margin: 26px 0 0; } }
+  @media (max-width: 720px) {
+    .wn-stage { padding: 22px 12px; }
+    .wn-grid { grid-template-columns: 1fr; gap: 24px; padding: 20px 18px; }
+    .wn-clock { font-size: 34px; }
+    .sm-hide { display: none !important; }
+  }
+  @media (prefers-reduced-motion: reduce) { .wn-r { transition: none; } }
+
+  /* ---- scroll-in reveal: content below the fold fades and slides up as it enters view, once, never re-hides ---- */
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity 0.6s ease, transform 0.6s ease; }
+  .reveal.visible { opacity: 1; transform: translateY(0); }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; transition: none; }
+    .mockup-chrome, .tilt { transition: none !important; }
+  }
+
+  /* ---- 3D cards: flat at rest so the page doesn't read as cluttered, lifting and tilting toward the cursor on hover ---- */
+  .tilt { transition: transform 0.25s ease-out, box-shadow 0.25s ease-out; transform-style: preserve-3d; will-change: transform; }
+  .price-card.tilt { box-shadow: 0 18px 40px -22px rgba(0,0,0,0.7); }
+  .price-card.tilt:hover { box-shadow: 0 34px 60px -24px rgba(0,0,0,0.8), 0 18px 40px -20px rgba(98,201,154,0.18); }
+
+  /* ---- final cta ---- */
+  .final-cta { text-align: center; padding: 28px 0 8px; }
+  .final-cta h2 { font-family: "Bricolage Grotesque", sans-serif; font-size: 26px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; margin: 0 0 20px; }
+  @media (max-width: 520px) { .final-cta h2 { font-size: 22px; } }
+
+  footer { padding: 14px 0 28px; color: var(--caption); font-size: 12.5px; text-align: center; }
+  footer a { color: var(--text2); }
+</style>
+</head>
+<body>
+<div class="amb" id="amb" data-tone="red" aria-hidden="true"><i class="r"></i><i class="g"></i><i class="a"></i></div>
+
+<header class="top">
+  <div class="wrap topbar">
+    <div class="brand">
+      <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABPUlEQVR42u3bPQrCQBCG4fSinSB4AwsRrDyAjccwt7Gx9yjewFt4AivBUkGwyMJmd2Z28+O+C18b8z1EYuJsVbFYrWu5mL/HHABKLW6GKBYg1QfOppMk6RyiWIDUhQ/7XWvO92tUcoEAYAWQFtYC5AIBQAugLZwK4Hi7NKKFAEAKoC2uvf35CvsihQAgFsBa3HpbjQWQQgCQGiDXDxb3uAB0BSAt3tVjbQhifaq/CZ0XAP8G8CsOgBVgqMV9EG7xWAgAtAB9F5dCAAAAAAAAAAAAAAAAAAAAAMDjMAD2V2LbzaqRvl6JaYsDAAAAur/GfMVzj7e5x7UWB8AK4J7Q6/loJBVEbGEAcgP4LkW3eAhCmlzFAUg1Jhf6CkgLaNPbnGCxALHj8LkLD25WePQA7BgBgE1TALBxEgBWcesDTL5F+ZCoQDcAAAAASUVORK5CYII=" alt="">
+      <span>BREAKEVEN</span>
+    </div>
+    <nav class="links">
+      <a href="#preview">Preview</a>
+      <a href="#features">Features</a>
+      <a href="#compare">Compare</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <!-- TODO: replace href="#" with your Lemon Squeezy checkout link once the store is live -->
+    <a class="nav-cta" href="#">Get BreakEven</a>
+  </div>
+</header>
+
+<div class="hero-stage">
+  <div class="hero wrap">
+    <h1 class="display">Know the moment a flat fee job <br>stops paying you <em>fairly</em>.</h1>
+    <p class="sub">BreakEven sits inside DaVinci Resolve and watches your effective hourly rate,
+      live, while you edit. You find out before the invoice goes out, not after.</p>
+    <div class="cta-row">
+      <!-- TODO: replace href="#" with your Lemon Squeezy checkout link(s) once the store is live -->
+      <a class="btn primary" href="#">Get BreakEven</a>
+    </div>
+    <p class="microcopy">One-time purchase · Works offline · Nothing ever leaves your machine</p>
+    <p class="hero-links"><a href="#preview">See how it works</a></p>
+  </div>
+
+  <div class="hero-mockups">
+    <div class="mockup-frame">
+      <div class="mockup-chrome mc-left">
+        <div class="mockup-titlebar">
+          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="name">BreakEven</span>
+        </div>
+        <div class="mockup-body">
+          <div class="mockup-head">
+            <span class="tick" style="background:var(--green)"></span>
+            <span class="proj">Podcast Intro Pack</span>
+            <span class="status" style="color:var(--green)">TRACKING</span>
+          </div>
+          <div class="mockup-clock mono" style="color:var(--text)">4:12:30</div>
+          <div class="mockup-stats mono">
+            <div class="stat"><div class="cap">RATE</div><div class="val" style="color:var(--green)">$92/hr</div></div>
+            <div class="stat"><div class="cap">LEFT</div><div class="val">4.2h</div></div>
+            <div class="stat"><div class="cap">BURN</div><div class="val">61%</div></div>
+          </div>
+          <div class="mockup-burnbar"><span style="background:var(--green)"></span><span style="background:var(--green)"></span><span style="background:var(--green)"></span><span></span></div>
+          <span class="mockup-stop">■ &nbsp;STOP</span>
+        </div>
+      </div>
+      <p class="mockup-caption">Ordinary tracking. Nothing to see yet, which is exactly the point.</p>
+    </div>
+    <div class="mockup-frame">
+      <div class="mockup-chrome mc-right">
+        <div class="mockup-titlebar">
+          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="name">BreakEven</span>
+        </div>
+        <div class="mockup-body">
+          <div class="mockup-head">
+            <span class="tick" style="background:var(--red)"></span>
+            <span class="proj">Skyline Brand Film</span>
+            <span class="status" style="color:var(--red)">TRACKING</span>
+          </div>
+          <div class="mockup-clock mono" style="color:var(--text)">21:45:00</div>
+          <div class="mockup-stats mono">
+            <div class="stat"><div class="cap">RATE</div><div class="val" style="color:var(--red)">$69/hr</div></div>
+            <div class="stat"><div class="cap">OVER</div><div class="val" style="color:var(--red)">3.0h</div></div>
+            <div class="stat"><div class="cap">BURN</div><div class="val" style="color:var(--red)">116%</div></div>
+          </div>
+          <div class="mockup-burnbar"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span></div>
+          <div class="mockup-banner mono">3.0H PAST BREAK EVEN &nbsp;·&nbsp; $240 UNPAID</div>
+          <span class="mockup-stop">■ &nbsp;STOP</span>
+        </div>
+      </div>
+      <p class="mockup-caption">What you see on the $1,500 job that quietly became a $69/hr job.</p>
+    </div>
+  </div>
+</div>
+
+<section id="preview">
+  <div class="wrap">
+    <p class="kicker reveal">Preview</p>
+    <h2 class="title reveal">One window. Everything you need to know.</h2>
+    <div class="wn-layout reveal">
+      <div class="wn-stage">
+        <div class="wn" id="wn">
+          <div class="wn-bar"><span class="d r"></span><span class="d y"></span><span class="d g"></span><span class="nm">BreakEven</span></div>
+          <div class="wn-grid">
+            <div class="wn-col">
+              <div class="wn-r" data-region="live">
+                <div class="wn-sec">TRACKER</div>
+                <div class="wn-head"><span class="proj">Skyline Brand Film</span><span class="st mono">TRACKING</span></div>
+                <div class="wn-clock mono">16:20:00</div>
+                <div class="wn-stats mono">
+                  <div><div class="cap">RATE</div><div class="val amb">$92/hr</div></div>
+                  <div><div class="cap">LEFT</div><div class="val">2.4h</div></div>
+                  <div><div class="cap">BURN</div><div class="val amb">87%</div></div>
+                </div>
+              </div>
+              <div class="wn-r" data-region="burn">
+                <div class="wn-seg"><span></span><span></span><span></span><span></span></div>
+                <div class="wn-msg mono">APPROACHING BREAKEVEN · 2.4H OF RUNWAY LEFT</div>
+              </div>
+              <div class="wn-r" data-region="controls">
+                <div class="wn-btns"><span class="wn-stop">■ &nbsp;STOP</span><span class="wn-util">QUOTE HELPER</span></div>
+                <div class="wn-set"><span>PROJECT FEE</span><i></i><span class="v">$ 1,500.00</span></div>
+                <div class="wn-set"><span>TARGET RATE</span><i></i><span class="v">$ 80 /hr</span></div>
+                <div class="wn-set sm-hide"><span>CURRENCY</span><i></i><span class="v">USD</span></div>
+                <div class="wn-set sm-hide"><span>IDLE STOP</span><i></i><span class="v">5 minutes</span></div>
+                <div class="wn-chk sm-hide"><span class="bx on"></span><span>NOTIFY AT 80% AND EACH HOUR PAST BREAKEVEN</span><span class="gap"></span><span class="bx on"></span><span>SOUND</span></div>
+                <div class="wn-note sm-hide"><span class="in">Session note (optional, saved when you stop)</span><span class="wn-chk" style="margin:0"><span class="bx"></span><span>CLIENT REVISION</span></span></div>
+              </div>
+            </div>
+            <div class="wn-col">
+              <div class="wn-r" data-region="pages">
+                <div class="wn-sec g">WHERE YOUR TIME GOES</div>
+                <div class="mono">
+                  <div class="wn-prow"><span class="l">EDIT</span><span class="wn-pbar"><i style="width:100%"></i></span><span class="t">8:40:00</span></div>
+                  <div class="wn-prow"><span class="l">COLOR</span><span class="wn-pbar"><i style="width:45%"></i></span><span class="t">3:55:00</span></div>
+                  <div class="wn-prow"><span class="l">FUSION</span><span class="wn-pbar"><i style="width:15%"></i></span><span class="t">1:20:00</span></div>
+                  <div class="wn-prow sm-hide"><span class="l">FAIRLIGHT</span><span class="wn-pbar"><i style="width:10%"></i></span><span class="t">0:50:00</span></div>
+                  <div class="wn-prow sm-hide"><span class="l">DELIVER</span><span class="wn-pbar"><i style="width:5%"></i></span><span class="t">0:25:00</span></div>
+                </div>
+              </div>
+              <div class="wn-r" data-region="history">
+                <div class="wn-sec g">SESSION HISTORY</div>
+                <div class="wn-hrow h"><span>DATE</span><span>DURATION</span><span>NOTE</span></div>
+                <div class="wn-hrow mono"><span class="dt">Sep 18</span><span>3:10:00</span><span class="n">Rough cut</span></div>
+                <div class="wn-hrow mono"><span class="dt">Sep 19</span><span>2:45:00</span><span class="n">Color pass</span></div>
+                <div class="wn-hrow mono"><span class="dt">Sep 20</span><span>1:20:00</span><span class="n"><span class="wn-tag">REV</span>Client round 1</span></div>
+                <div class="wn-hrow mono"><span class="dt">Sep 21</span><span>0:45:00</span><span class="n"><span class="wn-tag">REV</span>Round 2, logo</span></div>
+                <div class="wn-revline mono sm-hide">2 REVISIONS · 2.1H · $167 AT RATE</div>
+                <div class="wn-ubtns two sm-hide"><span class="wn-util">TAG REVISION</span><span class="wn-util">DELETE SELECTED</span></div>
+                <div class="wn-ubtns three sm-hide"><span class="wn-util">SUMMARY</span><span class="wn-util">EXPORT CSV</span><span class="wn-util">COMPACT</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="wn-list" id="wnList">
+        <button class="wn-item is-active" data-r="live" type="button"><span class="wn-n">1</span><span><b>The clock is the session</b><i>One clock, with your rate, the hours left and the fee burn right under it, recalculating every second.</i></span></button>
+        <button class="wn-item" data-r="burn" type="button"><span class="wn-n">2</span><span><b>It warns you at 80%</b><i>The whole window turns amber while there's still time. Past break even it goes red and prices the overrun.</i></span></button>
+        <button class="wn-item" data-r="controls" type="button"><span class="wn-n">3</span><span><b>Set once, per project</b><i>Fee, target rate, currency and idle limit are remembered for each Resolve project.</i></span></button>
+        <button class="wn-item" data-r="pages" type="button"><span class="wn-n">4</span><span><b>Where the hours went</b><i>Time per Resolve page, logged automatically as you move between them.</i></span></button>
+        <button class="wn-item" data-r="history" type="button"><span class="wn-n">5</span><span><b>Every session is kept</b><i>Notes, revision tags and earnings. Build a summary or export it all to CSV.</i></span></button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <p class="kicker reveal">Features</p>
+    <h2 class="title reveal">Everything a flat fee editor actually needs.</h2>
+    <p class="body reveal">Built for freelance and contract editors who bill flat fees and want to
+      know, not guess, whether a job was worth taking before the invoice goes out.</p>
+    <div class="fx reveal">
+      <div class="fx-stage" data-tone="green">
+        <div class="fx-glow g" aria-hidden="true"></div>
+        <div class="fx-glow a" aria-hidden="true"></div>
+
+        <!-- 1. live effective rate -->
+        <div class="fx-panel is-active" id="fx-p0" data-tone="green" role="tabpanel" aria-labelledby="fx-t0">
+          <div class="fx-show"><div class="fx-visual">
+            <div class="fx-win">
+              <div class="fx-bar"><span class="d r"></span><span class="d y"></span><span class="d g"></span><span class="nm">BreakEven</span></div>
+              <div class="fx-body">
+                <div class="fx-head"><span class="tick" style="background:var(--green)"></span><span class="proj">Skyline Brand Film</span><span class="status" style="color:var(--green)">TRACKING</span></div>
+                <div class="fx-clock mono" id="fx-live-clock">9:30:00</div>
+                <div class="fx-stats mono">
+                  <div><div class="cap">RATE</div><div class="val" style="color:var(--green)" id="fx-live-rate">$158/hr</div></div>
+                  <div><div class="cap">LEFT</div><div class="val" id="fx-live-left">9.3h</div></div>
+                  <div><div class="cap">BURN</div><div class="val" id="fx-live-burn">51%</div></div>
+                </div>
+                <div class="fx-burn g" id="fx-live-bar"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span></span><span></span><span></span><span></span><span></span></div>
+              </div>
+            </div>
+          </div></div>
+          <p class="fx-cap">$1,500 flat fee, $80/hr target. Your real hourly rate, recalculated every second while you work.</p>
+        </div>
+
+        <!-- 2. early warning -->
+        <div class="fx-panel" id="fx-p1" data-tone="amber" role="tabpanel" aria-labelledby="fx-t1" aria-hidden="true">
+          <div class="fx-show"><div class="fx-visual">
+            <div class="fx-toast"><div class="ic">!</div><div><b>BreakEven</b><span>83% of the fee is used. 3.3h left until break even.</span></div></div>
+            <div class="fx-win">
+              <div class="fx-bar"><span class="d r"></span><span class="d y"></span><span class="d g"></span><span class="nm">BreakEven</span></div>
+              <div class="fx-body">
+                <div class="fx-head"><span class="tick" style="background:var(--amber)"></span><span class="proj">Skyline Brand Film</span><span class="status" style="color:var(--amber)">TRACKING</span></div>
+                <div class="fx-clock mono">15:30:00</div>
+                <div class="fx-stats mono">
+                  <div><div class="cap">RATE</div><div class="val" style="color:var(--amber)">$97/hr</div></div>
+                  <div><div class="cap">LEFT</div><div class="val">3.3h</div></div>
+                  <div><div class="cap">BURN</div><div class="val" style="color:var(--amber)">83%</div></div>
+                </div>
+                <div class="fx-burn a"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span></span><span></span></div>
+                <div class="fx-hint mono">APPROACHING BREAKEVEN · 3.3H OF RUNWAY LEFT</div>
+              </div>
+            </div>
+          </div></div>
+          <p class="fx-cap">At 80% of the fee the window turns amber and you get a notification, while there's still time to act.</p>
+        </div>
+
+        <!-- 3. revisions -->
+        <div class="fx-panel" id="fx-p2" data-tone="amber" role="tabpanel" aria-labelledby="fx-t2" aria-hidden="true">
+          <div class="fx-show"><div class="fx-visual">
+            <div class="fx-win">
+              <div class="fx-bar"><span class="d r"></span><span class="d y"></span><span class="d g"></span><span class="nm">BreakEven</span></div>
+              <div class="fx-body">
+                <div class="fx-sec">SESSION HISTORY</div>
+                <div class="fx-hrow h"><span>DATE</span><span>DURATION</span><span class="e">EARNED</span><span>NOTE</span></div>
+                <div class="fx-hrow mono"><span class="dt">Sep 18</span><span>3:10:00</span><span class="e">$253</span><span class="n" style="font-family:'Bricolage Grotesque',-apple-system,'Segoe UI',sans-serif">Rough cut</span></div>
+                <div class="fx-hrow mono"><span class="dt">Sep 19</span><span>2:45:00</span><span class="e">$220</span><span class="n" style="font-family:'Bricolage Grotesque',-apple-system,'Segoe UI',sans-serif">Color pass</span></div>
+                <div class="fx-hrow mono"><span class="dt">Sep 20</span><span>1:20:00</span><span class="e">$107</span><span class="n" style="font-family:'Bricolage Grotesque',-apple-system,'Segoe UI',sans-serif"><span class="fx-tag">REV</span>Client round 1</span></div>
+                <div class="fx-hrow mono"><span class="dt">Sep 21</span><span>0:45:00</span><span class="e">$60</span><span class="n" style="font-family:'Bricolage Grotesque',-apple-system,'Segoe UI',sans-serif"><span class="fx-tag">REV</span>Round 2, logo swap</span></div>
+                <div class="fx-revline mono">2 REVISIONS · 2.1H · $167 AT RATE</div>
+              </div>
+            </div>
+          </div></div>
+          <p class="fx-cap">Tag a session as a client revision, and the total shows exactly what the extra rounds cost you.</p>
+        </div>
+
+        <!-- 4. quote helper (live) -->
+        <div class="fx-panel" id="fx-p3" data-tone="green" role="tabpanel" aria-labelledby="fx-t3" aria-hidden="true">
+          <div class="fx-show"><div class="fx-visual">
+            <div class="fx-win">
+              <div class="fx-bar"><span class="d r"></span><span class="d y"></span><span class="d g"></span><span class="nm">BreakEven</span></div>
+              <div class="fx-body">
+                <div class="fx-sec">QUOTE HELPER</div>
+                <div class="fx-fields">
+                  <div class="fx-field"><label for="q-hours">EST. HOURS</label><input id="q-hours" type="number" min="0" step="1" value="20"></div>
+                  <div class="fx-field"><label for="q-rate">TARGET /HR</label><input id="q-rate" type="number" min="0" step="1" value="100"></div>
+                  <div class="fx-field"><label for="q-buf">BUFFER %</label><input id="q-buf" type="number" min="0" step="5" value="20"></div>
+                </div>
+                <div class="fx-quote-foot">
+                  <div>
+                    <div class="fx-feecap">SUGGESTED FEE</div>
+                    <div class="fx-fee mono" id="q-out">$2,400</div>
+                    <div class="fx-feesub" id="q-sub">24.0h of work at $100/hr. Break even lands at 24.0h.</div>
+                  </div>
+                  <span class="fx-gbtn">USE THIS FEE</span>
+                </div>
+              </div>
+            </div>
+          </div></div>
+          <p class="fx-cap">Go ahead, change the numbers. This is the app's real formula, running on this page.</p>
+        </div>
+
+        <!-- 5. time per page -->
+        <div class="fx-panel" id="fx-p4" data-tone="green" role="tabpanel" aria-labelledby="fx-t4" aria-hidden="true">
+          <div class="fx-show"><div class="fx-visual">
+            <div class="fx-win">
+              <div class="fx-bar"><span class="d r"></span><span class="d y"></span><span class="d g"></span><span class="nm">BreakEven</span></div>
+              <div class="fx-body mono">
+                <div class="fx-sec">WHERE YOUR TIME GOES</div>
+                <div class="fx-prow"><span class="l">EDIT</span><span class="fx-pbar"><i style="--w:100%"></i></span><span class="t">8:40:00</span></div>
+                <div class="fx-prow"><span class="l">COLOR</span><span class="fx-pbar"><i style="--w:45%"></i></span><span class="t">3:55:00</span></div>
+                <div class="fx-prow"><span class="l">FUSION</span><span class="fx-pbar"><i style="--w:15%"></i></span><span class="t">1:20:00</span></div>
+                <div class="fx-prow"><span class="l">FAIRLIGHT</span><span class="fx-pbar"><i style="--w:10%"></i></span><span class="t">0:50:00</span></div>
+                <div class="fx-prow"><span class="l">DELIVER</span><span class="fx-pbar"><i style="--w:5%"></i></span><span class="t">0:25:00</span></div>
+                <div class="fx-ptotal"><span>PROJECT TOTAL</span><b>15:10:00</b></div>
+              </div>
+            </div>
+          </div></div>
+          <p class="fx-cap">Time per Resolve page, logged automatically, so you know where the hours actually went.</p>
+        </div>
+
+        <!-- 6. idle auto-stop + pill -->
+        <div class="fx-panel" id="fx-p5" data-tone="green" role="tabpanel" aria-labelledby="fx-t5" aria-hidden="true">
+          <div class="fx-show"><div class="fx-visual fx-stack">
+            <div class="fx-pill mono"><span class="dot"></span><span class="clk">0:42:15</span><span class="rt">$88/hr</span><span class="x">HIDE</span></div>
+            <div class="fx-win" style="width:100%">
+              <div class="fx-body">
+                <div class="fx-setting">IDLE STOP <span class="box">5 min</span><span class="lock">LOCKED WHILE TRACKING</span></div>
+                <div class="fx-hrow h"><span>DATE</span><span>DURATION</span><span class="e">EARNED</span><span>NOTE</span></div>
+                <div class="fx-hrow mono"><span class="dt">Sep 22</span><span>0:42:15</span><span class="e">$56</span><span class="n" style="font-family:'Bricolage Grotesque',-apple-system,'Segoe UI',sans-serif">Title fixes <span class="muted">(auto-stopped: idle)</span></span></div>
+              </div>
+            </div>
+          </div></div>
+          <p class="fx-cap">Walk away and it stops itself, trimming the idle time off. The compact pill keeps tracking out of your way.</p>
+        </div>
+
+        <!-- 7. project summary -->
+        <div class="fx-panel" id="fx-p6" data-tone="green" role="tabpanel" aria-labelledby="fx-t6" aria-hidden="true">
+          <div class="fx-show"><div class="fx-visual" style="text-align:center">
+            <div class="fx-seg" role="group" aria-label="Summary version">
+              <button type="button" class="on" data-copy="client">Client copy</button>
+              <button type="button" data-copy="records">My records</button>
+            </div>
+            <div class="fx-doc">
+              <div class="top">
+                <div><div class="k" id="fx-doc-k">PROJECT SUMMARY</div><div class="h">Skyline Brand Film</div></div>
+                <div class="date">Sep 23, 2026</div>
+              </div>
+              <div class="fx-tiles" data-copy="client">
+                <div class="fx-tile"><div class="l">FLAT FEE</div><div class="v">$1,500.00</div></div>
+                <div class="fx-tile"><div class="l">TIME TRACKED</div><div class="v">15:10:00</div><div class="s">6 sessions</div></div>
+                <div class="fx-tile"><div class="l">REVISIONS</div><div class="v">2.1 h</div><div class="s">2 revision sessions</div></div>
+              </div>
+              <div class="fx-tiles" data-copy="records" hidden>
+                <div class="fx-tile good"><div class="l">EFFECTIVE RATE</div><div class="v">$99/hr</div><div class="s">target $80/hr</div></div>
+                <div class="fx-tile good"><div class="l">BREAK EVEN</div><div class="v">18.8 h</div><div class="s">3.6 h still to go</div></div>
+                <div class="fx-tile warn"><div class="l">REVISIONS</div><div class="v">2.1 h</div><div class="s">worth $167 at your target rate</div></div>
+              </div>
+            </div>
+          </div></div>
+          <p class="fx-cap">One HTML page you can print to PDF. The client copy leaves out your rate; your own copy keeps everything.</p>
+        </div>
+
+        <!-- 8. crash recovery -->
+        <div class="fx-panel" id="fx-p7" data-tone="amber" role="tabpanel" aria-labelledby="fx-t7" aria-hidden="true">
+          <div class="fx-show"><div class="fx-visual">
+            <div class="fx-dialog">
+              <div class="badge">!</div>
+              <div class="t">Unfinished Session</div>
+              <div class="b">You have <strong class="mono">3:41:12</strong> of untracked time on <strong>"Skyline Brand Film"</strong>
+                from a session that was still running when Resolve last closed (last seen 14:32). Save it?</div>
+              <div class="btns"><span class="fx-dbtn danger">Discard</span><span class="fx-dbtn go">Save It</span></div>
+            </div>
+          </div></div>
+          <p class="fx-cap">If Resolve quits mid-session, the next launch offers to save it up to the last moment it was running.</p>
+        </div>
+
+      </div>
+
+      <div class="fx-list" role="tablist" aria-label="BreakEven features">
+        <button class="fx-tab is-active" id="fx-t0" role="tab" aria-selected="true" aria-controls="fx-p0">
+          <span class="fx-icon"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><circle cx="9" cy="10.2" r="5.8"/><path d="M9 10.2V7M7 2h4M9 2v2.4"/></svg></span>
+          <span><span class="fx-title">Live effective rate</span><span class="fx-desc">Fee ÷ hours, updating every second.</span></span>
+        </button>
+        <button class="fx-tab" id="fx-t1" role="tab" aria-selected="false" aria-controls="fx-p1" tabindex="-1">
+          <span class="fx-icon"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path d="M9 2.5L16 15.2H2L9 2.5Z"/><path d="M9 7.2v3.4M9 12.9v.2"/></svg></span>
+          <span><span class="fx-title">Early warning at 80%</span><span class="fx-desc">A heads-up while there's still time.</span></span>
+        </button>
+        <button class="fx-tab" id="fx-t2" role="tab" aria-selected="false" aria-controls="fx-p2" tabindex="-1">
+          <span class="fx-icon"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path d="M2.5 2.5h6.2l7 7-6.2 6.2-7-7V2.5Z"/><path d="M5.8 5.8h.1"/></svg></span>
+          <span><span class="fx-title">Revision tracking</span><span class="fx-desc">See what "one more round" costs.</span></span>
+        </button>
+        <button class="fx-tab" id="fx-t3" role="tab" aria-selected="false" aria-controls="fx-p3" tabindex="-1">
+          <span class="fx-icon"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><rect x="3.5" y="2" width="11" height="14"/><path d="M6 5.5h6M6.3 9.2h.1M9 9.2h.1M11.7 9.2h.1M6.3 12.4h.1M9 12.4h.1M11.7 12.4h.1"/></svg></span>
+          <span><span class="fx-title">Quote helper</span><span class="fx-desc">Price the next job so it clears your rate.</span></span>
+        </button>
+        <button class="fx-tab" id="fx-t4" role="tab" aria-selected="false" aria-controls="fx-p4" tabindex="-1">
+          <span class="fx-icon"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path d="M3 4.5h12M3 9h7.5M3 13.5h4"/></svg></span>
+          <span><span class="fx-title">Time per Resolve page</span><span class="fx-desc">Edit, Color, Fusion, Fairlight, Deliver.</span></span>
+        </button>
+        <button class="fx-tab" id="fx-t5" role="tab" aria-selected="false" aria-controls="fx-p5" tabindex="-1">
+          <span class="fx-icon"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path d="M3 7.5h9.5v3.8a3.7 3.7 0 0 1-3.7 3.7H6.7A3.7 3.7 0 0 1 3 11.3V7.5Z"/><path d="M12.5 8.7h1.3a1.8 1.8 0 0 1 0 3.6h-1.3M6.2 2.5v2.2M9.3 2.5v2.2"/></svg></span>
+          <span><span class="fx-title">Idle auto-stop</span><span class="fx-desc">Coffee breaks don't count.</span></span>
+        </button>
+        <button class="fx-tab" id="fx-t6" role="tab" aria-selected="false" aria-controls="fx-p6" tabindex="-1">
+          <span class="fx-icon"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path d="M4 2h6.5L14 5.5V16H4V2Z"/><path d="M10.2 2.3v3.5h3.5M6.6 9h4.8M6.6 12.2h4.8"/></svg></span>
+          <span><span class="fx-title">Project summary</span><span class="fx-desc">A client-safe copy, or the full one.</span></span>
+        </button>
+        <button class="fx-tab" id="fx-t7" role="tab" aria-selected="false" aria-controls="fx-p7" tabindex="-1">
+          <span class="fx-icon"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path d="M3.6 9.8a5.6 5.6 0 1 0 1.9-4.6"/><path d="M4.4 2.4v3.3h3.3"/></svg></span>
+          <span><span class="fx-title">Crash recovery</span><span class="fx-desc">Resolve quits, your session doesn't.</span></span>
+        </button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="compare">
+  <div class="wrap">
+    <p class="kicker reveal">Compare</p>
+    <h2 class="title reveal">BreakEven vs. Manual Tracking.</h2>
+    <div class="vs reveal">
+      <div class="vs-row vs-head">
+        <div class="feat"></div>
+        <div class="cell">Without BreakEven<small>stopwatch + spreadsheet</small></div>
+        <div class="cell us">With BreakEven<small>inside Resolve</small></div>
+      </div>
+      <div class="vs-row">
+        <div class="feat">Lives inside DaVinci Resolve<small>No separate app or tab to remember to start</small></div>
+        <div class="cell"><span class="no" aria-label="No"></span></div>
+        <div class="cell us"><span class="yes" aria-label="Yes"><svg viewBox="0 0 13 13" aria-hidden="true"><path d="M2 7l3 3 6-7" fill="none" stroke="#08130D" stroke-width="2.4" stroke-linecap="square"/></svg></span></div>
+      </div>
+      <div class="vs-row">
+        <div class="feat">Shows your real hourly rate, live<small>Fee divided by hours, updating every second</small></div>
+        <div class="cell"><span class="no" aria-label="No"></span></div>
+        <div class="cell us"><span class="yes" aria-label="Yes"><svg viewBox="0 0 13 13" aria-hidden="true"><path d="M2 7l3 3 6-7" fill="none" stroke="#08130D" stroke-width="2.4" stroke-linecap="square"/></svg></span></div>
+      </div>
+      <div class="vs-row">
+        <div class="feat">Warns you at 80% of the fee<small>While there is still time to act on it</small></div>
+        <div class="cell"><span class="no" aria-label="No"></span></div>
+        <div class="cell us"><span class="yes" aria-label="Yes"><svg viewBox="0 0 13 13" aria-hidden="true"><path d="M2 7l3 3 6-7" fill="none" stroke="#08130D" stroke-width="2.4" stroke-linecap="square"/></svg></span></div>
+      </div>
+      <div class="vs-row">
+        <div class="feat">Prices every unpaid hour past break even<small>In your currency, the moment it happens</small></div>
+        <div class="cell"><span class="no" aria-label="No"></span></div>
+        <div class="cell us"><span class="yes" aria-label="Yes"><svg viewBox="0 0 13 13" aria-hidden="true"><path d="M2 7l3 3 6-7" fill="none" stroke="#08130D" stroke-width="2.4" stroke-linecap="square"/></svg></span></div>
+      </div>
+      <div class="vs-row">
+        <div class="feat">Tracks client revisions separately<small>So one more round has a visible cost</small></div>
+        <div class="cell"><span class="no" aria-label="No"></span></div>
+        <div class="cell us"><span class="yes" aria-label="Yes"><svg viewBox="0 0 13 13" aria-hidden="true"><path d="M2 7l3 3 6-7" fill="none" stroke="#08130D" stroke-width="2.4" stroke-linecap="square"/></svg></span></div>
+      </div>
+      <div class="vs-row">
+        <div class="feat">Shows time per Resolve page<small>Edit, Color, Fusion, Fairlight, Deliver</small></div>
+        <div class="cell"><span class="no" aria-label="No"></span></div>
+        <div class="cell us"><span class="yes" aria-label="Yes"><svg viewBox="0 0 13 13" aria-hidden="true"><path d="M2 7l3 3 6-7" fill="none" stroke="#08130D" stroke-width="2.4" stroke-linecap="square"/></svg></span></div>
+      </div>
+      <div class="vs-row">
+        <div class="feat">Stops itself when you step away<small>Idle time never inflates the hours</small></div>
+        <div class="cell"><span class="no" aria-label="No"></span></div>
+        <div class="cell us"><span class="yes" aria-label="Yes"><svg viewBox="0 0 13 13" aria-hidden="true"><path d="M2 7l3 3 6-7" fill="none" stroke="#08130D" stroke-width="2.4" stroke-linecap="square"/></svg></span></div>
+      </div>
+      <div class="vs-row">
+        <div class="feat">Recovers the session if Resolve crashes<small>Back to the last moment it was running</small></div>
+        <div class="cell"><span class="no" aria-label="No"></span></div>
+        <div class="cell us"><span class="yes" aria-label="Yes"><svg viewBox="0 0 13 13" aria-hidden="true"><path d="M2 7l3 3 6-7" fill="none" stroke="#08130D" stroke-width="2.4" stroke-linecap="square"/></svg></span></div>
+      </div>
+      <div class="vs-row">
+        <div class="feat">Client-safe project summary<small>Hides your rate, keeps the hours</small></div>
+        <div class="cell"><span class="no" aria-label="No"></span></div>
+        <div class="cell us"><span class="yes" aria-label="Yes"><svg viewBox="0 0 13 13" aria-hidden="true"><path d="M2 7l3 3 6-7" fill="none" stroke="#08130D" stroke-width="2.4" stroke-linecap="square"/></svg></span></div>
+      </div>
+      <div class="vs-row">
+        <div class="feat">Quote helper for the next job<small>Hours plus a revision buffer, priced at your rate</small></div>
+        <div class="cell"><span class="no" aria-label="No"></span></div>
+        <div class="cell us"><span class="yes" aria-label="Yes"><svg viewBox="0 0 13 13" aria-hidden="true"><path d="M2 7l3 3 6-7" fill="none" stroke="#08130D" stroke-width="2.4" stroke-linecap="square"/></svg></span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="pricing">
+  <div class="wrap pricing">
+    <p class="kicker reveal" style="justify-content:center">Pricing</p>
+    <h2 class="title reveal">Buy it once. Keep it.</h2>
+    <p class="body reveal" style="margin:0 auto">No subscription, no account, no recurring charge.</p>
+    <div class="price-card reveal tilt">
+      <div class="price-badge">Launch discount · 20% off</div>
+      <div class="amount-row">
+        <span class="was mono">$24.99</span>
+        <div class="amount mono">$19.99</div>
+      </div>
+      <div class="note">One-time payment · no subscription, ever</div>
+      <!-- TODO: replace href="#" with your Lemon Squeezy checkout link once the store is live -->
+      <a class="btn primary" href="#" style="width:100%">Get BreakEven</a>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <p class="kicker reveal">Questions</p>
+    <h2 class="title reveal">FAQ</h2>
+
+    <div class="faq-item reveal">
+      <button class="faq-q" aria-expanded="false">
+        Does it send any of my project data anywhere?
+        <svg class="faq-arrow" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 5l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square"/></svg>
+      </button>
+      <div class="faq-a"><div class="faq-a-inner">
+        <p>No. Everything BreakEven tracks (fees, rates, session history) is stored in a local
+          file next to your Resolve data. There's no account, no server, no telemetry.</p>
+      </div></div>
+    </div>
+    <div class="faq-item reveal">
+      <button class="faq-q" aria-expanded="false">
+        Does it work with Resolve Free, or only Studio?
+        <svg class="faq-arrow" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 5l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square"/></svg>
+      </button>
+      <div class="faq-a"><div class="faq-a-inner">
+        <p>It's built entirely on Resolve's standard scripting API, the same one used by both
+          editions. It doesn't touch anything Studio-exclusive.</p>
+      </div></div>
+    </div>
+    <div class="faq-item reveal">
+      <button class="faq-q" aria-expanded="false">
+        What do I need to run it?
+        <svg class="faq-arrow" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 5l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square"/></svg>
+      </button>
+      <div class="faq-a"><div class="faq-a-inner">
+        <p>Just DaVinci Resolve, on <strong>macOS or Windows</strong>. BreakEven is a single Lua
+          file that runs on the scripting engine already built into Resolve. No Python, no
+          account, no internet connection.</p>
+      </div></div>
+    </div>
+    <div class="faq-item reveal">
+      <button class="faq-q" aria-expanded="false">
+        How do I install it?
+        <svg class="faq-arrow" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 5l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square"/></svg>
+      </button>
+      <div class="faq-a"><div class="faq-a-inner">
+        <p>Double-click <strong>Install Mac.command</strong> (or <strong>Install Windows.bat</strong>).
+          It copies the one file into Resolve's Scripts folder for you. Restart Resolve and open it from
+          <strong>Workspace ▸ Scripts ▸ Utility ▸ BreakEven</strong>, and it's there for every project after that.</p>
+        <p>On a Mac, if it says the file can't be opened because it's from an unidentified developer, right-click <strong>Install Mac.command</strong>, choose <strong>Open</strong>, then confirm once. After that it runs normally.</p>
+      </div></div>
+    </div>
+    <div class="faq-item reveal">
+      <button class="faq-q" aria-expanded="false">
+        What happens if Resolve crashes while I'm tracking?
+        <svg class="faq-arrow" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 5l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square"/></svg>
+      </button>
+      <div class="faq-a"><div class="faq-a-inner">
+        <p>On the next launch, BreakEven finds the unfinished session and offers to recover it up
+          to the last moment it was running. You choose whether to save it or discard it.</p>
+      </div></div>
+    </div>
+    <div class="faq-item reveal">
+      <button class="faq-q" aria-expanded="false">
+        Can I use it in a currency other than USD?
+        <svg class="faq-arrow" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 5l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square"/></svg>
+      </button>
+      <div class="faq-a"><div class="faq-a-inner">
+        <p>Yes. Pick your currency from the menu and every amount in the app switches to it.</p>
+      </div></div>
+    </div>
+    <div class="faq-item reveal">
+      <button class="faq-q" aria-expanded="false">
+        Do I need to be tracking every second, or can I add time after the fact?
+        <svg class="faq-arrow" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 5l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square"/></svg>
+      </button>
+      <div class="faq-a"><div class="faq-a-inner">
+        <p>You track live by pressing Start/Stop, and every session is saved with a note. There's
+          no manual time-entry field, by design. The whole point is the number you see is real.</p>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<div class="final-cta wrap">
+  <h2 class="reveal">Stop finding out at the end of the job.</h2>
+  <div class="cta-row">
+    <!-- TODO: replace href="#" with your Lemon Squeezy checkout link once the store is live -->
+    <a class="btn primary" href="#">Get BreakEven</a>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    BreakEven for DaVinci Resolve
+  </div>
+</footer>
+
+<script>
+  // Reveal-on-scroll: each .reveal element fades and slides up the first time it enters view, then stays put
+  // (never re-hides on scroll back up - a one-shot reveal reads as content "loading in", not a distracting peekaboo).
+  if ("IntersectionObserver" in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("visible");
+          io.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.15, rootMargin: "0px 0px -40px 0px" });
+    document.querySelectorAll(".reveal").forEach(function (el) { io.observe(el); });
+  } else {
+    // no IntersectionObserver support: show everything immediately rather than leave it invisible
+    document.querySelectorAll(".reveal").forEach(function (el) { el.classList.add("visible"); });
+  }
+
+  // 3D tilt-toward-cursor. Pointer-driven only, so touch devices simply keep the resting angle.
+  var reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function addTilt(el, maxDeg, rest, lift) {
+    if (reduceMotion) return;
+    el.addEventListener("mousemove", function (e) {
+      var r = el.getBoundingClientRect();
+      var px = (e.clientX - r.left) / r.width - 0.5;
+      var py = (e.clientY - r.top) / r.height - 0.5;
+      el.style.transform = "perspective(1200px) rotateX(" + (rest.x - py * maxDeg).toFixed(2) +
+        "deg) rotateY(" + (rest.y + px * maxDeg).toFixed(2) + "deg)" + (lift ? " translateZ(" + lift + "px)" : "");
+    });
+    el.addEventListener("mouseleave", function () { el.style.transform = ""; });
+  }
+
+  var chromeLeft = document.querySelector(".mockup-chrome.mc-left");
+  if (chromeLeft) addTilt(chromeLeft, 7, { x: 8, y: 9 }, 0);                 // adds to its own resting tilt
+  var chromeRight = document.querySelector(".mockup-chrome.mc-right");
+  if (chromeRight) addTilt(chromeRight, 7, { x: 8, y: -9 }, 0);
+  var priceCard = document.querySelector(".price-card.tilt");
+  if (priceCard) addTilt(priceCard, 5, { x: 0, y: 0 }, 18);
+
+  // "What it does" feature explorer: clicking a feature in the list swaps the visual above it,
+  // sliding the old one out and the new one in from the direction it sits in the list, and crossfading
+  // the stage's background glow between green (healthy) and amber (warning-type features).
+  (function () {
+    var tabs = Array.prototype.slice.call(document.querySelectorAll(".fx-tab"));
+    if (!tabs.length) return;
+    var panels = Array.prototype.slice.call(document.querySelectorAll(".fx-panel"));
+    var stage = document.querySelector(".fx-stage");
+    var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var cur = 0;
+
+    function select(i, focus) {
+      if (i === cur) return;
+      var dir = i > cur ? 1 : -1, oldP = panels[cur], newP = panels[i];
+      tabs[cur].classList.remove("is-active"); tabs[cur].setAttribute("aria-selected", "false"); tabs[cur].tabIndex = -1;
+      tabs[i].classList.add("is-active"); tabs[i].setAttribute("aria-selected", "true"); tabs[i].tabIndex = 0;
+      if (focus) tabs[i].focus();
+
+      oldP.classList.remove("is-active"); oldP.setAttribute("aria-hidden", "true");
+      if (!reduce) {
+        oldP.style.transform = "translateX(" + (-dir * 40) + "px)";
+        newP.style.transition = "none";
+        newP.style.transform = "translateX(" + (dir * 40) + "px)";
+        void newP.offsetWidth;
+        newP.style.transition = "";
+        newP.style.transform = "";
+      }
+      newP.classList.add("is-active"); newP.removeAttribute("aria-hidden");
+      stage.setAttribute("data-tone", newP.getAttribute("data-tone"));
+      cur = i;
+
+      // on a phone the list sits below the stage - bring the visual back into view
+      var r = stage.getBoundingClientRect();
+      if (r.top < 0) window.scrollTo({ top: window.scrollY + r.top - 24, behavior: reduce ? "auto" : "smooth" });
+    }
+
+    tabs.forEach(function (t, i) {
+      t.addEventListener("click", function () { select(i, false); });
+      t.addEventListener("keydown", function (e) {
+        var k = e.key, n = tabs.length, to = null;
+        if (k === "ArrowRight" || k === "ArrowDown") to = (cur + 1) % n;
+        else if (k === "ArrowLeft" || k === "ArrowUp") to = (cur - 1 + n) % n;
+        else if (k === "Home") to = 0;
+        else if (k === "End") to = n - 1;
+        if (to !== null) { e.preventDefault(); select(to, true); }
+      });
+    });
+
+    // the first panel is genuinely live: the clock ticks and the numbers follow the app's own formulas
+    // ($1,500 fee, $80/hr target)
+    var FEE = 1500, BE = FEE / 80, secs = 9 * 3600 + 30 * 60;
+    var clk = document.getElementById("fx-live-clock"), rate = document.getElementById("fx-live-rate"),
+        left = document.getElementById("fx-live-left"), burn = document.getElementById("fx-live-burn"),
+        segs = document.querySelectorAll("#fx-live-bar span");
+    function pad(n) { return n < 10 ? "0" + n : "" + n; }
+    setInterval(function () {
+      if (cur !== 0 || document.hidden) return;
+      secs++;
+      var h = secs / 3600, pct = h / BE * 100;
+      clk.textContent = Math.floor(secs / 3600) + ":" + pad(Math.floor(secs / 60) % 60) + ":" + pad(secs % 60);
+      rate.textContent = "$" + Math.round(FEE / h) + "/hr";
+      left.textContent = (BE - h).toFixed(1) + "h";
+      burn.textContent = Math.round(pct) + "%";
+      for (var s = 0; s < segs.length; s++) segs[s].classList.toggle("on", s < Math.round(pct / 10));
+    }, 1000);
+
+    // project summary panel: Client copy / My records toggle
+    var segBtns = document.querySelectorAll(".fx-seg button"), tileSets = document.querySelectorAll(".fx-tiles"),
+        docK = document.getElementById("fx-doc-k");
+    segBtns.forEach(function (b) {
+      b.addEventListener("click", function () {
+        segBtns.forEach(function (x) { x.classList.toggle("on", x === b); });
+        tileSets.forEach(function (t) { t.hidden = t.getAttribute("data-copy") !== b.getAttribute("data-copy"); });
+        docK.textContent = b.getAttribute("data-copy") === "client" ? "PROJECT SUMMARY" : "PROJECT SUMMARY · FOR MY RECORDS";
+      });
+    });
+  })();
+
+  // "The whole thing": hovering, focusing or tapping a point in the list spotlights that part of the app window
+  // and steps everything else back. The first point is lit from the start so the window never looks unexplained.
+  (function () {
+    var win = document.getElementById("wn");
+    var items = Array.prototype.slice.call(document.querySelectorAll("#wnList .wn-item"));
+    if (!win || !items.length) return;
+    function light(i) {
+      var key = items[i].getAttribute("data-r");
+      items.forEach(function (it, j) { it.classList.toggle("is-active", j === i); });
+      win.classList.add("has-lit");
+      Array.prototype.forEach.call(win.querySelectorAll(".wn-r"), function (r) {
+        r.classList.toggle("is-lit", r.getAttribute("data-region") === key);
+      });
+    }
+    items.forEach(function (it, i) {
+      it.addEventListener("mouseenter", function () { light(i); });
+      it.addEventListener("focus", function () { light(i); });
+      it.addEventListener("click", function () { light(i); });
+    });
+    light(0);
+  })();
+
+  // Ambient light: the colour behind the page follows whichever section is crossing the middle of the screen.
+  (function () {
+    var amb = document.getElementById("amb");
+    if (!amb) return;
+    var map = [[".hero-stage", "red"], ["#preview", "amber"], ["#features", "none"], ["#compare", "red"],
+               ["#pricing", "green"], ["#faq", "amber"], [".final-cta", "amber"]];
+    var els = [];
+    map.forEach(function (p) {
+      var el = document.querySelector(p[0]);
+      if (el) { el.setAttribute("data-tone", p[1]); els.push(el); }
+    });
+    function pick() {
+      var mid = window.innerHeight / 2, cur = els[els.length - 1];
+      for (var i = 0; i < els.length; i++) {
+        var r = els[i].getBoundingClientRect();
+        if (r.top <= mid && r.bottom > mid) { cur = els[i]; break; }
+      }
+      amb.setAttribute("data-tone", cur.getAttribute("data-tone"));
+    }
+    window.addEventListener("scroll", pick, { passive: true });
+    window.addEventListener("resize", pick);
+    pick();
+  })();
+
+  // FAQ accordion: each question toggles its own answer open/closed independently.
+  document.querySelectorAll(".faq-q").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var open = btn.closest(".faq-item").classList.toggle("open");
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+  });
+
+  // Live quote calculator: the same maths the app uses: fee = hours * (1 + buffer/100) * rate, rounded.
+  (function () {
+    var hoursEl = document.getElementById("q-hours"),
+        rateEl  = document.getElementById("q-rate"),
+        bufEl   = document.getElementById("q-buf"),
+        outEl   = document.getElementById("q-out"),
+        subEl   = document.getElementById("q-sub");
+    if (!hoursEl) return;
+    function commas(n) { return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
+    function recalc() {
+      var hours = parseFloat(hoursEl.value) || 0,
+          rate  = parseFloat(rateEl.value) || 0,
+          buf   = Math.max(parseFloat(bufEl.value) || 0, 0);
+      if (hours <= 0 || rate <= 0) {
+        outEl.textContent = "$0";
+        subEl.textContent = "Enter your estimated hours and target rate.";
+        return;
+      }
+      var billable = hours * (1 + buf / 100);
+      var fee = Math.round(billable * rate);
+      outEl.textContent = "$" + commas(fee);
+      subEl.textContent = billable.toFixed(1) + "h of work at $" + commas(rate) +
+        "/hr. Break even lands at " + billable.toFixed(1) + "h.";
+    }
+    [hoursEl, rateEl, bufEl].forEach(function (el) { el.addEventListener("input", recalc); });
+    recalc();
+  })();
+</script>
+</body>
+</html>
