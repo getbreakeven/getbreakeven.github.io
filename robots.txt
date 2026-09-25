@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://getbreakeven.github.io/sitemap.xml
